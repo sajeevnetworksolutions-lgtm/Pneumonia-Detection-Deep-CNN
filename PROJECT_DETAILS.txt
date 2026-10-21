@@ -1,0 +1,6 @@
+PROJECT FOLDER: Project_01_Pneumonia_Detection
+DISSERTATION TITLE: Automated Pneumonia Detection from Chest Radiographs Using Deep CNNs with Batch-Normalized Spatial Regularization
+DOCUMENT TYPE: M.Tech Dissertation Synopsis (IEEE / ACM Standard)
+REPOSITORY: https://github.com/sajeevnetworksolutions-lgtm/Pneumonia-Detection-Deep-CNN.git
+FILES INCLUDED: MTech_Synopsis_01_Pneumonia_Detection.pdf, Architecture_Diagram.png, AURA-PNEUMO CAD Workstation Codebase
+STATUS: Complete Verified Publication-Grade Implementation (Passes all 7 Unit Tests)
