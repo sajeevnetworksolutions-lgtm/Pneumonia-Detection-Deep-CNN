@@ -28,6 +28,10 @@ wheels/
 .coverage
 htmlcov/
 
+# Large full dataset archives
+*.zip
+data/kermany_kaggle_full/
+
 # IDE & OS
 .vscode/
 .idea/

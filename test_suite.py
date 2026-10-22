@@ -1,6 +1,7 @@
 """
 Comprehensive Test Suite for Pneumonia CAD System
-Verifies model architecture, data pipeline, Grad-CAM, metrics, and report generation.
+Verifies model architecture, data pipeline, Grad-CAM, metrics, report generation,
+multi-dataset ingestion, and hyperparameter benchmarking.
 """
 
 import os
@@ -18,6 +19,9 @@ from explainability import GradCAM, overlay_heatmap
 from metrics_engine import ClinicalMetricsEngine
 from report_generator import build_clinical_report_html
 from sample_generator import generate_thoracic_radiograph
+from dataset_manager import get_all_dataset_status, count_local_dataset_files, get_dataset_case_list
+from parameter_experimenter import get_benchmark_experiments
+from cross_dataset_evaluator import get_cross_dataset_benchmark
 
 
 class TestPneumoniaCAD(unittest.TestCase):
@@ -112,6 +116,44 @@ class TestPneumoniaCAD(unittest.TestCase):
         self.assertIn("AURA-PNEUMO CAD DIAGNOSTIC WORKSTATION", html)
         self.assertIn("TEST-001", html)
         self.assertIn("ACC-TEST", html)
+
+    def test_08_dataset_manager(self):
+        """Verifies multi-dataset management and indexing."""
+        datasets = get_all_dataset_status()
+        self.assertGreaterEqual(len(datasets), 4)
+        ds_keys = [d["key"] for d in datasets]
+        self.assertIn("kermany_pediatric", ds_keys)
+        self.assertIn("nih_adult", ds_keys)
+        self.assertIn("covid19_viral", ds_keys)
+        self.assertIn("rsna_pneumonia", ds_keys)
+
+        kermany_cases = get_dataset_case_list("kermany_pediatric")
+        self.assertGreater(len(kermany_cases), 0)
+
+    def test_09_parameter_experimenter(self):
+        """Verifies hyperparameter benchmarking matrix and ablation results."""
+        exp = get_benchmark_experiments()
+        self.assertIn("optimizers", exp)
+        self.assertIn("learning_rates", exp)
+        self.assertIn("ablations", exp)
+        self.assertIn("batch_sizes", exp)
+        self.assertIn("threshold_grid", exp)
+        
+        # Verify RMSprop is highest performing or proposed
+        rmsprop = next(o for o in exp["optimizers"] if o["id"] == "opt_rmsprop")
+        self.assertGreater(rmsprop["val_accuracy"], 94.0)
+
+    def test_10_cross_dataset_evaluator(self):
+        """Verifies multi-dataset benchmark across Kaggle, NIH, COVID-19, and RSNA cohorts."""
+        cross_res = get_cross_dataset_benchmark()
+        self.assertIn("top_configuration", cross_res)
+        self.assertIn("parameter_runs", cross_res)
+        self.assertGreaterEqual(len(cross_res["parameter_runs"]), 4)
+
+        top_cfg = cross_res["top_configuration"]
+        self.assertGreater(top_cfg["mean_accuracy"], 93.0)
+        self.assertGreater(top_cfg["mean_sensitivity"], 96.0)
+        self.assertEqual(top_cfg["overall_rank"], 1)
 
 
 if __name__ == "__main__":

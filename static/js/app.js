@@ -1,12 +1,16 @@
 /**
  * AURA-PNEUMO CAD v2.4 - Radiologist Workstation Controller
  * Manages DICOM viewport manipulations, inference calls, Grad-CAM overlays,
- * dynamic threshold audits, and clinical report generation.
+ * multi-dataset cohorts, parameter experimentation, dynamic threshold audits,
+ * and clinical report generation.
  */
 
 const state = {
     currentSampleId: "CASE-4412-LOBAR",
+    currentImagePath: null,
     uploadedFile: null,
+    selectedOptimizer: "rmsprop",
+    selectedDropout: "proposed",
     threshold: 0.50,
     colormap: "turbo",
     alpha: 0.55,
@@ -197,9 +201,12 @@ async function runInference() {
     formData.append("threshold", state.threshold);
     formData.append("colormap", state.colormap);
     formData.append("alpha", state.alpha);
+    formData.append("optimizer_choice", state.selectedOptimizer || "rmsprop");
 
     if (state.uploadedFile) {
         formData.append("file", state.uploadedFile);
+    } else if (state.currentImagePath) {
+        formData.append("image_path", state.currentImagePath);
     } else {
         formData.append("sample_id", state.currentSampleId);
     }
@@ -254,7 +261,6 @@ function updateUIWithResults(data) {
     // Focal Target Box (Peak Opacity)
     if (data.prediction === "Pneumonia" && data.peak_location) {
         focalTargetBox.style.display = "block";
-        // Calculate relative position based on viewport center
         focalTargetBox.style.left = `${data.peak_location[0]}px`;
         focalTargetBox.style.top = `${data.peak_location[1]}px`;
     } else {
@@ -273,6 +279,7 @@ document.querySelectorAll(".sample-card").forEach(card => {
         document.querySelectorAll(".sample-card").forEach(c => c.classList.remove("active"));
         card.classList.add("active");
         state.currentSampleId = card.dataset.id;
+        state.currentImagePath = null;
         state.uploadedFile = null;
         document.getElementById("fileNameDisplay").innerText = card.querySelector("h4").innerText;
         runInference();
@@ -313,9 +320,117 @@ if (dropZone && fileInput) {
 function handleFileUpload(file) {
     state.uploadedFile = file;
     state.currentSampleId = null;
+    state.currentImagePath = null;
     document.querySelectorAll(".sample-card").forEach(c => c.classList.remove("active"));
     document.getElementById("fileNameDisplay").innerText = file.name;
     runInference();
+}
+
+// Multi-Dataset Download All Action
+const btnDownloadAllDatasets = document.getElementById("btnDownloadAllDatasets");
+if (btnDownloadAllDatasets) {
+    btnDownloadAllDatasets.addEventListener("click", async () => {
+        btnDownloadAllDatasets.innerText = "⏳ Downloading Samples from Mirrors...";
+        btnDownloadAllDatasets.disabled = true;
+        try {
+            const resp = await fetch("/api/datasets/download", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: "dataset_key=all"
+            });
+            const res = await resp.json();
+            btnDownloadAllDatasets.innerText = "✓ Sync Complete! All Datasets Updated";
+            setTimeout(() => {
+                btnDownloadAllDatasets.innerText = "📥 Download & Sync All Dataset Samples";
+                btnDownloadAllDatasets.disabled = false;
+            }, 3000);
+        } catch (e) {
+            console.error(e);
+            btnDownloadAllDatasets.innerText = "Sync Failed (Check Connection)";
+            btnDownloadAllDatasets.disabled = false;
+        }
+    });
+}
+
+// Multi-Dataset Case Browser Action
+const datasetCasesBrowser = document.getElementById("datasetCasesBrowser");
+const datasetCasesGrid = document.getElementById("datasetCasesGrid");
+const datasetCasesTitle = document.getElementById("datasetCasesTitle");
+const btnCloseCasesBrowser = document.getElementById("btnCloseCasesBrowser");
+
+document.querySelectorAll(".btn-load-dataset-cases").forEach(btn => {
+    btn.addEventListener("click", async () => {
+        const dsKey = btn.dataset.key;
+        datasetCasesBrowser.style.display = "block";
+        datasetCasesGrid.innerHTML = "<p style='font-size: 11px; color: var(--text-dim);'>Loading radiographs...</p>";
+        datasetCasesTitle.innerText = `Clinical Radiographs: ${dsKey.toUpperCase()}`;
+
+        try {
+            const resp = await fetch(`/api/datasets/${dsKey}/cases`);
+            const cases = await resp.json();
+            
+            if (cases.length === 0) {
+                datasetCasesGrid.innerHTML = "<p style='font-size: 11px; color: var(--text-dim);'>No local images found. Click 'Download & Sync All Dataset Samples' above.</p>";
+                return;
+            }
+
+            datasetCasesGrid.innerHTML = "";
+            cases.forEach(c => {
+                const card = document.createElement("div");
+                card.style.cssText = "background: rgba(255,255,255,0.05); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px; cursor: pointer; text-align: center;";
+                card.innerHTML = `
+                    <img src="/${c.rel_path}" style="width: 100%; height: 90px; object-fit: cover; border-radius: 4px; background: #000;">
+                    <div style="font-size: 9px; font-weight: 600; margin-top: 4px; color: ${c.ground_truth === 'Normal' ? 'var(--accent-emerald)' : 'var(--accent-crimson)'};">
+                        ${c.ground_truth.toUpperCase()}
+                    </div>
+                    <div style="font-size: 8px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        ${c.filename}
+                    </div>
+                `;
+                card.addEventListener("click", () => {
+                    state.currentImagePath = c.rel_path;
+                    state.currentSampleId = null;
+                    state.uploadedFile = null;
+                    document.querySelectorAll(".sample-card").forEach(sc => sc.classList.remove("active"));
+                    document.getElementById("fileNameDisplay").innerText = `[${c.dataset}] ${c.filename}`;
+                    
+                    // Switch to Diagnostic Cockpit Tab
+                    document.querySelector('[data-tab="tabWorkstation"]').click();
+                    runInference();
+                });
+                datasetCasesGrid.appendChild(card);
+            });
+        } catch (e) {
+            datasetCasesGrid.innerHTML = "<p style='font-size: 11px; color: #ef4444;'>Failed to load cases.</p>";
+        }
+    });
+});
+
+if (btnCloseCasesBrowser) {
+    btnCloseCasesBrowser.addEventListener("click", () => {
+        datasetCasesBrowser.style.display = "none";
+    });
+}
+
+// Hyperparameter Testing Playground Action
+const btnApplyParamTest = document.getElementById("btnApplyParamTest");
+if (btnApplyParamTest) {
+    btnApplyParamTest.addEventListener("click", () => {
+        const optSelect = document.getElementById("paramSelectOptimizer");
+        const dropSelect = document.getElementById("paramSelectDropout");
+        const thSelect = document.getElementById("paramSelectThreshold");
+
+        state.selectedOptimizer = optSelect.value;
+        state.selectedDropout = dropSelect.value;
+        state.threshold = parseFloat(thSelect.value);
+
+        if (thresholdSlider) thresholdSlider.value = state.threshold;
+        if (thresholdValueDisplay) thresholdValueDisplay.innerText = state.threshold.toFixed(2);
+
+        // Switch to Viewport Tab
+        document.querySelector('[data-tab="tabWorkstation"]').click();
+        runInference();
+    });
 }
 
 // Clinical Report Modal & PDF Print
